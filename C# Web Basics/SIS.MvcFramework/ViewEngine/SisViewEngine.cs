@@ -8,11 +8,16 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using SIS.MvcFramework.Identity;
+using System.Net;
 
 namespace SIS.MvcFramework.ViewEngine
 {
+    using Validation;
+
     public class SisViewEngine : IViewEngine
     {
+        public object WebUtilitycode { get; private set; }
+
         private string GetModelType<T>(T model)
         {
             if (model is IEnumerable)
@@ -23,9 +28,11 @@ namespace SIS.MvcFramework.ViewEngine
             return model.GetType().FullName;
         }
 
-        public string GetHtml<T>(string viewContent, T model, Principal user = null)
+        public string GetHtml<T>(string viewContent, T model, ModelStateDictionary modelState, Principal user = null)
         {
-            string csharpHtmlCode = this.GetCSharpCode(viewContent);
+            string csharpHtmlCode = string.Empty;
+            csharpHtmlCode = this.CheckForWidgets(viewContent);
+            csharpHtmlCode = this.GetCSharpCode(csharpHtmlCode);
             string code = $@"
 using System;
 using System.Net;
@@ -34,14 +41,16 @@ using System.Text;
 using System.Collections.Generic;
 using SIS.MvcFramework.ViewEngine;
 using SIS.MvcFramework.Identity;
+using SIS.MvcFramework.Validation;
 namespace AppViewCodeNamespace
 {{
     public class AppViewCode : IView
     {{
-        public string GetHtml(object model, Principal user)
+        public string GetHtml(object model, ModelStateDictionary modelState, Principal user)
         {{
             var Model = {(model == null ? "new {}" : "model as " + GetModelType(model))};
-            var User = user;            
+            var User = user;           
+            var ModelState= modelState;
 
 	        var html = new StringBuilder();
 
@@ -52,48 +61,96 @@ namespace AppViewCodeNamespace
     }}
 }}";
             var view = this.CompileAndInstance(code, model?.GetType().Assembly);
-            var htmlResult = view?.GetHtml(model, user);
+            var htmlResult = view?.GetHtml(model, modelState, user);
             return htmlResult;
+        }
+
+        private string CheckForWidgets(string viewContent)
+        {
+            //Check 
+            var widgets = Assembly
+                .GetEntryAssembly()?
+                .GetTypes()
+                .Where(type => typeof(IViewWidget).IsAssignableFrom(type))
+                .Select(x => (IViewWidget)Activator.CreateInstance(x))
+                .ToList();
+
+            if (widgets == null || widgets.Count == 0)
+            {
+                return viewContent;
+            }
+
+            string widgetPrefix = "@Widgets.";
+
+            foreach (var viewWidget in widgets)
+            {
+                viewContent = viewContent.Replace($"{widgetPrefix}{viewWidget.GetType().Name}", viewWidget.Render());
+            }
+
+            return viewContent;
         }
 
         private string GetCSharpCode(string viewContent)
         {
             // TODO: { var a = "Niki"; }
-            var lines = viewContent.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+            var lines = viewContent.Split(new string[] { "\r\n", "\n\r", "\n" }, StringSplitOptions.None);
             var csharpCode = new StringBuilder();
             var supportedOperators = new[] { "for", "if", "else" };
-            var csharpCodeRegex = new Regex(@"[^\s<""]+", RegexOptions.Compiled);
+            var csharpCodeRegex = new Regex(@"[^\s<""\&]+", RegexOptions.Compiled);
+            var csharpCodeDepth = 0; // If > 0, Inside CSharp Syntax
+
             foreach (var line in lines)
             {
-                if (line.TrimStart().StartsWith("{") || line.TrimStart().StartsWith("}"))
+                string currentLine = line;
+
+                if (currentLine.TrimStart().StartsWith("@{"))
+                {
+                    csharpCodeDepth++;
+                }
+                else if (currentLine.TrimStart().StartsWith("{") || currentLine.TrimStart().StartsWith("}"))
                 {
                     // { / }
-                    csharpCode.AppendLine(line);
+                    if (csharpCodeDepth > 0)
+                    {
+                        if (currentLine.TrimStart().StartsWith("{"))
+                        {
+                            csharpCodeDepth++;
+                        }
+                        else if (currentLine.TrimStart().StartsWith("}"))
+                        {
+                            if ((--csharpCodeDepth) == 0)
+                            {
+                                continue;
+                            }
+                        }
+                    }
+
+                    csharpCode.AppendLine(currentLine);
                 }
-                else if (supportedOperators.Any(x => line.TrimStart().StartsWith("@" + x)))
+                else if (csharpCodeDepth > 0)
+                {
+                    csharpCode.AppendLine(currentLine);
+                    continue;
+                }
+                else if (supportedOperators.Any(x => currentLine.TrimStart().StartsWith("@" + x)))
                 {
                     // @C#
-                    var atSignLocation = line.IndexOf("@");
-                    var csharpLine = line.Remove(atSignLocation, 1);
+                    var atSignLocation = currentLine.IndexOf("@");
+                    var csharpLine = currentLine.Remove(atSignLocation, 1);
                     csharpCode.AppendLine(csharpLine);
                 }
                 else
                 {
                     // HTML
-                    if (!line.Contains("@"))
+                    if (currentLine.Contains("@RenderBody()"))
                     {
-                        var csharpLine = $"html.AppendLine(@\"{line.Replace("\"", "\"\"")}\");";
-                        csharpCode.AppendLine(csharpLine);
-                    }
-                    else if (line.Contains("@RenderBody()"))
-                    {
-                        var csharpLine = $"html.AppendLine(@\"{line}\");";
+                        var csharpLine = $"html.AppendLine(@\"{currentLine}\");";
                         csharpCode.AppendLine(csharpLine);
                     }
                     else
                     {
                         var csharpStringToAppend = "html.AppendLine(@\"";
-                        var restOfLine = line;
+                        var restOfLine = currentLine;
                         while (restOfLine.Contains("@"))
                         {
                             var atSignLocation = restOfLine.IndexOf("@");
@@ -143,6 +200,7 @@ namespace AppViewCodeNamespace
                 .AddReferences(MetadataReference.CreateFromFile(typeof(Object).Assembly.Location))
                 .AddReferences(MetadataReference.CreateFromFile(typeof(IView).Assembly.Location))
                 .AddReferences(MetadataReference.CreateFromFile(Assembly.GetEntryAssembly().Location))
+                .AddReferences(MetadataReference.CreateFromFile(Assembly.Load(new AssemblyName("netstandard")).Location))
                 .AddReferences(MetadataReference.CreateFromFile(modelAssembly.Location));
 
             var netStandardAssembly = Assembly.Load(new AssemblyName("netstandard")).GetReferencedAssemblies();
@@ -159,12 +217,16 @@ namespace AppViewCodeNamespace
                 var compilationResult = compilation.Emit(memoryStream);
                 if (!compilationResult.Success)
                 {
-                    foreach (var error in compilationResult.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error))
+                    var errors = compilationResult.Diagnostics.Where(x => x.Severity == DiagnosticSeverity.Error);
+                    var errorsHtml = new StringBuilder();
+                    errorsHtml.AppendLine($"<h1>{errors.Count()} errors:</h1>");
+                    foreach (var error in errors)
                     {
-                        Console.WriteLine(error.GetMessage());
+                        errorsHtml.AppendLine($"<div>{error.Location} => {error.GetMessage()}</div>");
                     }
 
-                    return null;
+                    errorsHtml.AppendLine($"<pre>{WebUtility.HtmlEncode(code)}</pre>");
+                    return new ErrorView(errorsHtml.ToString());
                 }
 
                 memoryStream.Seek(0, SeekOrigin.Begin);
