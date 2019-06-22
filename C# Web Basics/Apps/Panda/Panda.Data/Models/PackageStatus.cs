@@ -3,6 +3,6 @@
     public enum PackageStatus
     {
         Pending = 1,
-        Delivered =2,
+        Delivered = 2,
     }
 }

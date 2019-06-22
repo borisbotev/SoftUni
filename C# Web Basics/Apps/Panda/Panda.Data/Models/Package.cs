@@ -1,9 +1,10 @@
-﻿namespace Panda.Data.Models
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Text;
+
+namespace Panda.Data.Models
 {
-    using System;
-    using System.Collections.Generic;
-    using System.ComponentModel.DataAnnotations;
-    using System.Text;
     public class Package
     {
         public Package()
@@ -27,6 +28,7 @@
 
         [Required]
         public string RecipientId { get; set; }
+
         public virtual User Recipient { get; set; }
     }
 }

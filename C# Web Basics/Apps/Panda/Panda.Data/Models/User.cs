@@ -1,13 +1,12 @@
-﻿namespace Panda.Data.Models
-{
-    using System;
-    using System.Collections.Generic;
-    using System.ComponentModel.DataAnnotations;
-    using System.Text;
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Text;
 
+namespace Panda.Data.Models
+{
     public class User
     {
-
         public User()
         {
             this.Id = Guid.NewGuid().ToString();
@@ -25,7 +24,7 @@
         [MaxLength(20)]
         public string Email { get; set; }
 
-        [Required]    
+        [Required]
         public string Password { get; set; }
 
         public virtual ICollection<Package> Packages { get; set; }

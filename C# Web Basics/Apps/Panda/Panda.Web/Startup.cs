@@ -1,26 +1,29 @@
-﻿
+﻿using Panda.Data;
+using Panda.Services;
+using SIS.MvcFramework;
+using SIS.MvcFramework.DependencyContainer;
+using SIS.MvcFramework.Routing;
+using System.Collections.Generic;
+using System.Text;
+
 namespace Panda.Web
 {
-    using Panda.Data;
-    using Panda.Services;
-    using SIS.MvcFramework;
-    using SIS.MvcFramework.DependencyContainer;
-    using SIS.MvcFramework.Routing;
-
     public class Startup : IMvcApplication
     {
         public void Configure(IServerRoutingTable serverRoutingTable)
         {
-            //Once on start
-            using (var context = new PandaDbContext())
+            // Once on start
+            using (var db = new PandaDbContext())
             {
-                context.Database.EnsureCreated();
+                db.Database.EnsureCreated();
             }
         }
 
         public void ConfigureServices(IServiceProvider serviceProvider)
         {
-            serviceProvider.Add<IUserService, UserService>();
+            serviceProvider.Add<IUsersService, UsersService>();
+            serviceProvider.Add<IPackagesService, PackagesService>();
+            serviceProvider.Add<IReceiptsService, ReceiptsService>();
         }
     }
 }
