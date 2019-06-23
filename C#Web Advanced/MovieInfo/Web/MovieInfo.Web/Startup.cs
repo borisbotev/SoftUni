@@ -24,6 +24,7 @@
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.Logging;
+    using Microsoft.AspNetCore.Authentication.Cookies;
 
     public class Startup
     {
@@ -56,6 +57,16 @@
                 .AddRoleStore<ApplicationRoleStore>()
                 .AddDefaultTokenProviders()
                 .AddDefaultUI(UIFramework.Bootstrap4);
+
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            })
+               .AddFacebook(options =>
+               {
+                   options.AppId = "869809260047619";
+                   options.AppSecret = "bd48b0d5a86a51b749cff05b4ad49ac9";
+               });
 
             services
                 .AddMvc()
@@ -99,6 +110,8 @@
             services.AddTransient<IEmailSender, NullMessageSender>();
             services.AddTransient<ISmsSender, NullMessageSender>();
             services.AddTransient<ISettingsService, SettingsService>();
+
+            
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
